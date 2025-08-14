@@ -1,0 +1,8 @@
+{
+  "name": "web",
+  "private": true,
+  "version": "0.0.1",
+  "scripts": {
+    "dev": "node -e \"console.log('web dev server placeholder')\""
+  }
+}
