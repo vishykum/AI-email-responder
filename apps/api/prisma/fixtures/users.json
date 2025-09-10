@@ -1,0 +1,13 @@
+[
+    {
+        "first_name": "John",
+        "last_name": "Doe",
+        "display_email": "john.doe@dot.com",
+        "password": "pass1"
+    },{
+        "first_name": "Jill",
+        "last_name": "Doe",
+        "display_email": "jill.doe@dot.com",
+        "password": "pass2"
+    }
+]

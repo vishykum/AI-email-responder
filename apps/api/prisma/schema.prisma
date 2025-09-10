@@ -4,6 +4,13 @@
 // Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
 // Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
 
+// To Do:
+
+// Uniqueness & Indexes
+// Cascade deletes
+// Timestamps & Defaults
+// Draft Uniqueness (Check if @@unique in draft is correct)
+
 generator client {
   provider = "prisma-client-js"
   output   = "../generated/prisma"
@@ -12,4 +19,340 @@ generator client {
 datasource db {
   provider = "mysql"
   url      = env("DATABASE_URL")
+}
+
+//User & OAuth
+
+model User {
+  id String @id @default(uuid())
+  first_name String
+  last_name String
+  display_email String @unique
+  password_hash String? //No password for oauth
+  created_at DateTime @default(now())
+
+  connected_accounts ConnectedAccount[]
+  prompts Prompt[]
+  drafts Draft[]
+  audit_logs AuditLog[]
+  refresh_tokens RefreshToken[]
+
+}
+
+model ConnectedAccount {
+  id String @id @default(uuid())
+  
+  user_id String
+  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  provider Provider
+  provider_user_id String
+
+  email_address String @unique
+
+  access_token_encrypted String @db.Text
+  refresh_token_encrypted String @db.Text
+  token_expiry DateTime? //For access_token
+  status TokenStatus @default(ACTIVE) //For refresh_token
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  threads Thread[]
+  messages Message[]
+  labels Label[]
+  sync_states SyncState? @relation()
+  drafts Draft[]
+
+  @@unique([provider, provider_user_id])
+  @@unique([id, provider])
+}
+
+//Mail Data
+model Thread {
+  id String @id @default(uuid())
+
+  connected_account_id String
+  connected_account ConnectedAccount @relation(fields: [connected_account_id], references: [id])
+
+  provider_thread_id String
+
+  subject String?
+
+  last_message_at DateTime
+
+  message_count Int
+
+  is_archived Boolean @default(false)
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  messages Message[]
+  prompts Prompt[]
+  drafts Draft[]
+
+  @@unique([connected_account_id, provider_thread_id])
+}
+
+model Message {
+  id String @id @default(uuid())
+
+  thread_id String
+  thread Thread @relation(fields: [thread_id], references: [id])
+
+  connected_account_id String
+  connected_account ConnectedAccount @relation(fields: [connected_account_id], references: [id])
+
+  provider_message_id String
+  
+  from_address String
+  to_addresses Json
+
+  cc_addresses Json?
+  bcc_addresses Json?
+
+  subject String
+
+  snippet String @db.MediumText
+
+  internal_date DateTime
+
+  headers_json Json
+
+  body_text String? @db.LongText //Cached
+  body_html String? @db.LongText //Cached
+
+  has_attachments Boolean
+
+  is_read Boolean @default(false)
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  attachments Attachment[]
+  message_labels MessageLabel[]
+  prompts Prompt[]
+  drafts Draft[]
+
+  @@unique([connected_account_id, provider_message_id])
+}
+
+model Attachment {
+  id String @id @default(uuid())
+
+  message_id String
+  message Message @relation(fields: [message_id], references: [id])
+
+  filename String
+
+  mime_type String
+
+  storage_url String //nullable if you cache; else null means fetch on demand
+
+  created_at DateTime @default(now())
+
+  size_bytes Int
+}
+
+model Label {
+  id String @id @default(uuid())
+
+  connected_account_id String
+  connected_account ConnectedAccount @relation(fields: [connected_account_id], references: [id])
+
+  provider_label_id String
+
+  name String
+
+  type LabelType
+
+  color String?
+
+  message_labels MessageLabel[]
+
+  @@unique([connected_account_id, provider_label_id])
+}
+
+model MessageLabel {
+  message_id String
+  message Message @relation(fields: [message_id], references: [id])
+
+  label_id String
+  label Label @relation(fields: [label_id], references: [id])
+
+  @@unique([message_id, label_id])
+}
+
+//AI Workflow
+
+model Prompt {
+  id String @id @default(uuid())
+  
+  user_id String
+  user User @relation(fields: [user_id], references: [id])
+
+  target_type TargetType
+
+  target_message_id String?
+  target_message Message? @relation(fields: [target_message_id], references: [id])
+
+  target_thread_id String?
+  target_thread Thread? @relation(fields: [target_thread_id], references: [id])
+
+  prompt_text String @db.LongText
+
+  context_json Json //structured extras you pass to the model
+
+  created_at DateTime @default(now())
+
+  response AIResponse?
+  drafts Draft[]
+}
+
+model AIResponse {
+  id String @id @default(uuid())
+
+  prompt_id String @unique //One prompt has only one response for now
+  prompt Prompt @relation(fields: [prompt_id], references: [id])
+
+  meta Json
+
+  quality_score Float
+
+  created_at DateTime @default(now())
+
+  drafts Draft[]
+}
+
+model Draft {
+  id String @id @default(uuid())
+
+  user_id String
+  user User @relation(fields: [user_id], references: [id])
+
+  connected_account_id String
+  connected_account ConnectedAccount @relation(fields: [connected_account_id], references: [id])
+
+  ai_response_id String
+  ai_response AIResponse @relation(fields: [ai_response_id], references: [id])
+
+  prompt_id String
+  prompt Prompt @relation(fields: [prompt_id], references: [id])
+
+  thread_id String
+  thread Thread @relation(fields: [thread_id], references: [id])
+
+  message_id String
+  message Message @relation(fields: [message_id], references: [id])
+
+  status DraftStatus @default(EDITING)
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  sent_actions SentAction[]
+
+  @@unique([user_id, connected_account_id, message_id]) //One message can only have one draft
+}
+
+model SentAction {
+  id String @id @default(uuid())
+
+  draft_id String
+  draft Draft @relation(fields: [draft_id], references: [id])
+
+  provider_message_id String //the ID returned after sending
+
+  sent_at DateTime @default(now())
+}
+
+//Sync & audit
+model SyncState {
+  id String @id @default(uuid())
+
+  connected_account_id String @unique
+  connected_account ConnectedAccount @relation(fields: [connected_account_id], references: [id])
+
+  last_sync_token String //Or last_history_id
+
+  last_synced_at DateTime @updatedAt
+
+  status SyncStatus
+
+  error_message String? @db.MediumText
+}
+
+model AuditLog {
+  id String @id @default(uuid())
+
+  user_id String
+  user User @relation(fields: [user_id], references: [id])
+
+  actor Actor
+
+  action Action
+
+  details_json Json
+
+  created_at DateTime @default(now())
+}
+
+//Refresh Token
+model RefreshToken {
+  tokenHash String @id
+
+  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  user_id String
+
+  created_at DateTime @default(now())
+
+  expires_at DateTime
+  
+  revoked Boolean @default(false)
+}
+
+//Enums
+enum Provider {
+  GOOGLE
+  YAHOO
+  OUTLOOK
+}
+
+enum TokenStatus {
+  ACTIVE
+  REVOKED
+  ERROR
+}
+
+enum LabelType {
+  SYSTEM
+  USER
+}
+
+enum TargetType {
+  MESSAGE
+  THREAD
+}
+
+enum DraftStatus {
+  EDITING
+  SENT
+}
+
+enum SyncStatus {
+  IDLE
+  RUNNING
+  ERROR
+}
+
+enum Actor {
+  SYSTEM
+  USER
+}
+
+enum Action {
+  SYNC
+  GENERATE
+  SEND
 }
