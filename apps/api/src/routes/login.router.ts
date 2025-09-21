@@ -67,7 +67,7 @@ router.post('/auth_local',
             secure: process.env.NODE_ENV === "production",
             sameSite: "lax",
             maxAge: ms((process.env.RT_TTL || '7d') as StringValue)
-        }).json({message: "JWT and refresh token created"});
+        }).status(200).json({message: "JWT and refresh token created"});
 
         cmdLogger.info("Access token and refresh token generated", {user_id: req.user!.id});
     }
@@ -156,6 +156,52 @@ router.get("/google/callback", (req: Request, res: Response, next: NextFunction)
                 return res.status(500).json({ message: "Internal server error" });
         }
 
+        // ── (2) ALWAYS upsert the Google connected account
+        try {
+            if (!info?.access_token || !info?.provider_user_id || !info?.token_expiry) {
+                return res.status(400).json({ error: "Google callback missing tokens/profile" });
+            }
+
+            const existing = await prisma.connectedAccount.findFirst({
+                where: { user_id: req.user!.id, provider: $Enums.Provider.GOOGLE },
+                select: { id: true },
+            });
+
+            if (existing) {
+                await prisma.connectedAccount.update({ where: { id: existing.id }, 
+                    data: {
+                            access_token_encrypted: encryptToken(info.access_token),
+                            token_expiry: info.token_expiry,
+                            ...(info.refresh_token
+                                ? { refresh_token_encrypted: encryptToken(info.refresh_token) }
+                                : {}),
+                    }
+                });
+                cmdLogger.info("Updated Google connected account", { user_id: req.user!.id });
+            } else {
+            if (!info.refresh_token) {
+                // first link must have a refresh token
+                return res.status(400).json({ error: "No refresh_token from Google. Please reconnect with consent." });
+            }
+
+            await prisma.connectedAccount.create({
+                data : {
+                        provider: $Enums.Provider.GOOGLE,
+                        provider_user_id: info.provider_user_id,
+                        email_address: req.user!.email,
+                        user_id: req.user!.id, // using UncheckedCreateInput; keep your style
+                        access_token_encrypted: encryptToken(info.access_token),
+                        refresh_token_encrypted: encryptToken(info.refresh_token), // required on create
+                        token_expiry: info.token_expiry,
+                }
+            });
+            cmdLogger.info("Created Google connected account", { user_id: req.user!.id });
+            }
+        } catch (e) {
+            cmdLogger.error(`Error upserting Google connected account (ERR: ${JSON.stringify(e)})`);
+            return res.status(500).json({ message: "Internal server error" });
+        }
+
         //JWT short-lived token
         const token = issueAccessToken(req.user!);
 
@@ -209,10 +255,7 @@ router.get("/google/callback", (req: Request, res: Response, next: NextFunction)
         cmdLogger.info("Access token and refresh token generated", {user_id: req.user!.id});
 
 
-        return res.status(200).json({
-            message: "Login successful",
-            user: user,
-        });
+        return res.redirect(`${process.env.CLIENT_URL!}/`);
     }); 
     
     mw(req,res,next);
@@ -221,10 +264,34 @@ router.get("/google/callback", (req: Request, res: Response, next: NextFunction)
 //GET /api/login/me
 router.get('/me',
     authenticateWithRefresh(),
-    (req: Request, res: Response) => {
+    async (req: Request, res: Response) => {
         cmdLogger.info('Inside GET /api/login/me', {user_id: req.user!.id});
-        
-        res.json(req.user!);
+
+        try {
+            const resp = await prisma.user.findUnique({
+                where: {id: req.user!.id},
+                select: {first_name: true, last_name: true, connected_accounts: {
+                    select: {
+                        provider: true,
+                        email_address: true,
+                    },
+                }}
+            });
+
+            if (!resp) {
+                return res.json({error: "Invalid user id"});
+            }
+
+            res.json({...req.user!, name: resp.first_name + " " + resp.last_name, accounts: resp.connected_accounts});
+        } catch(err: any) {
+            if (err?.code === "P2003") {
+                cmdLogger.error("Invalid user reference", {user_id: req.user!.id});
+                return res.status(400).json({error: "Invalid user reference"});
+            }
+
+            cmdLogger.error(`Failed to retreive user data (ERR: ${JSON.stringify(err)})`, {user_id: req.user!.id});
+            return res.status(500).json({error: "Failed to retreive user data"});
+        }
     }
 );
 
@@ -238,7 +305,7 @@ router.get('/logout',
         
         cmdLogger.info('Cleared access_token and refresh_token cookies', {user_id: req.user!.id});
 
-        res.json({ok: true, message: "Logout successful"});
+        res.status(200).json({ok: true, message: "Logout successful"});
     }
 );
 

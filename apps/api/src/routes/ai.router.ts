@@ -70,35 +70,38 @@ function countTokensForModel(messages: ChatCompletionMessageParam[], model: stri
     return tokens;
 }
 
-router.get("/chat", authenticateWithRefresh(),
+//MODIFY TO ALLOW COMPOSING MESSAGES
+router.post("/chat", authenticateWithRefresh(),
     async (req: Request, res: Response) => {
-        // if (!req.body.message_id || !req.body.prompt) {
-        //     return res.status(400).json({error: "Request body missing message_id or prompt"});
-        // }
-        cmdLogger.info("Inside GET /api/ai/chat", {user_info: req.user!.id});
+        cmdLogger.info(JSON.stringify(req.body));
 
-        const message_id = req.query.message_id as string;
-        const body_prompt = ""; //Helps change get to post later
+        if (!req.body.message_id && !req.body.prompt) {
+            return res.status(400).json({error: "Request body missing message_id and prompt - Atleast 1 required"});
+        }
+        cmdLogger.info("Inside POST /api/ai/chat", {user_info: req.user!.id});
+
+        const message_id = req.body.message_id as string ?? null;
+        const body_prompt = req.body.prompt as string ?? ""; //Helps change get to post later
 
         //Check if message belongs to user
         try {
-            const message = await prisma.message.findUnique({
+            const message = message_id ? await prisma.message.findUnique({
                 where: {id: message_id},
                 include: {connected_account: true}
-            });
+            }) : null;
 
-            if (!message) {
+            if (!message && message_id) {
                 return res.status(400).json({error: "Invalid message id"});
             }
 
-            if (message.connected_account.user_id !== req.user!.id) {
+            if (message && message.connected_account.user_id !== req.user!.id) {
                 return res.status(401).json({error: "Unauthorized"});
             }
 
-            cmdLogger.info("Message retreived", {user_info: req.user!.id});
+            if (message) cmdLogger.info("Message retreived", {user_info: req.user!.id});
 
             try {
-                const user_prompt = generatePrompt((message.body_text ? message.body_text : message.body_html!), body_prompt);
+                const user_prompt = generatePrompt((message ? (message.body_text ? message.body_text : message.body_html!) : ""), body_prompt);
 
                 cmdLogger.info("Sending prompt to groq", {user_info: req.user!.id});
 
@@ -141,7 +144,7 @@ router.get("/chat", authenticateWithRefresh(),
                         data: {
                             user_id: req.user!.id,
                             target_type: $Enums.TargetType.MESSAGE,
-                            target_message_id: message.id,
+                            ...( message ? {target_message_id: message.id} : {}),
                             prompt_text: user_prompt,
                             context_json: system_prompt
                         }

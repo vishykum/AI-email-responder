@@ -1,0 +1,15 @@
+@import "tailwindcss";
+@import "../../theme.css";
+
+.nav-link {
+    @apply rounded-md px-3 py-2 text-sm font-medium transition;
+}
+
+.nav-link.not-active {
+    @apply text-brand-muted hover:bg-brand-primary;
+}
+
+
+.nav-link.active {
+    @apply bg-brand-muted text-brand-secondary;
+}

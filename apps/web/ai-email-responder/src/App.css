@@ -1,0 +1,33 @@
+@import "tailwindcss";
+@import "./theme.css";
+
+/* ---------- Global Color Scheme ---------- */
+
+/* Page-level */
+.bg-navbar {
+    @apply bg-brand-secondary;
+}
+
+.bg-page {
+    @apply bg-brand-primary;
+}
+
+/* Cards & Containers */
+
+/* Typography */
+.font-normal {
+    @apply font-sans;
+}
+
+.font-stylized {
+    @apply font-serif;
+}
+
+/* Branding */
+
+/* Status Colors */
+
+/* Interactive States & Buttons */
+.button {
+    @apply rounded-md px-3 py-2 text-sm font-medium transition;
+}

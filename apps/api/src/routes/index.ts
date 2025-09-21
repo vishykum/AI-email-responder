@@ -2,6 +2,7 @@ import {Router} from 'express';
 import express from 'express';
 import cookieParser from 'cookie-parser';
 import passport from '../auth/passport';
+import cors from "cors";
 
 import healthRoutes from './health.router';
 import loginRoutes from './login.router';
@@ -11,6 +12,12 @@ import gmailRoutes from './gmail.router';
 import aiRoutes from './ai.router';
 
 const router: Router = Router();
+
+router.use(cors({
+    origin: process.env.CLIENT_URL!,
+    methods: ["GET", "POST", "PUT", "DELETE"],
+    credentials: true,
+}));
 
 router.use(express.json());
 router.use(express.urlencoded({extended: true}));

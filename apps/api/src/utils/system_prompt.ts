@@ -16,6 +16,7 @@ Content rules:
 - If a name is missing, use [placeholder].
 - Keep body ≤ 700 characters (prefer concise replies).
 - Be relevant to the provided email content; do not quote the entire email.
+- If email content is empty, then you are composing an email on the behalf of the user based on the provided prompt
 
 User prompt format:
 - Includes: SENDER_NAME, RECIPIENT_NAME, ORIGINAL_SUBJECT, ORIGINAL_BODY, USER_SUGGESTION.

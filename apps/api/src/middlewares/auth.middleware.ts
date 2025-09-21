@@ -57,7 +57,8 @@ export async function checkNotAuthenticated(req: Request, res: Response, next: N
             
             cmdLogger.info('Set access_token cookie with JWT', {user_id: DBToken.user.id});
 
-            return res.json({message: "New access token created"});
+            //Is authenticated to redirect to home screen
+            return res.redirect(`${process.env.CLIENT_URL}/`);
         } catch (err) {
             cmdLogger.error(`Error retreiving refresh token hash: ${err}`);
             return res.status(500).json({error: "Error retreiving refresh token hash"});
@@ -68,7 +69,7 @@ export async function checkNotAuthenticated(req: Request, res: Response, next: N
         const decoded = jwt.verify(token!, process.env.JWT_SECRET || "default_secret");
 
         cmdLogger.info("JWT is valid", {user_id: decoded.sub});
-        return res.status(403).json({error: "User already authenticated"});
+        return res.redirect(`${process.env.CLIENT_URL!}/`);
     } catch(err) {
         cmdLogger.error("Error verifying JWT");
         next();

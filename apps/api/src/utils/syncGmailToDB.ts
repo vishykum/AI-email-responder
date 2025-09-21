@@ -6,6 +6,7 @@ import { decryptToken } from "../auth/tokenCrypto";
 import {  ConnectedAccount } from "../../generated/prisma";
 import type {Prisma} from "../../generated/prisma";
 import { gmail_v1 } from "googleapis";
+import { isInvalidGrant } from "./oauth";
 
 //TODO: Handle attachments and error handling
 
@@ -100,11 +101,11 @@ async function upsertLabel(
 
 // Build a cache of Gmail labels for this account once per sync to avoid N calls
 async function getLabelsPerAccount(gmail: gmail_v1.Gmail) {
-  const { data } = await gmail.users.labels.list({ userId: "me" });
-  const all = data.labels ?? [];
-  const byId = new Map<string, gmail_v1.Schema$Label>();
-  for (const l of all) if (l.id) byId.set(l.id, l);
-  return byId;
+    const { data } = await gmail.users.labels.list({ userId: "me" });
+    const all = data.labels ?? [];
+    const byId = new Map<string, gmail_v1.Schema$Label>();
+    for (const l of all) if (l.id) byId.set(l.id, l);
+    return byId;
 }
 
 async function mapGmailLabelsToInternalIds(
@@ -332,6 +333,23 @@ export async function syncGmailToDB(account: ConnectedAccount) {
     };
     const gmail = getGmailClient(tokens);
 
+    cmdLogger.info("Gmail client retreived successfully");
+
+    // Probe once to trigger refresh now and classify errors early
+    try {
+        await gmail.users.getProfile({ userId: "me" });
+    } catch (err) {
+        if (isInvalidGrant(err)) {
+        await prisma.connectedAccount.update({
+            where: { id: account.id },
+            data: { is_connected: false }, // add this column if you don't have it
+        });
+        // Return a typed signal the route can convert to 401
+        return { ok: false, code: "OAUTH_RECONNECT_REQUIRED" as const };
+        }
+        throw err; // other errors follow your existing handlers
+    }
+
     //Check if there is an existing SyncState
     try {
         const SyncState = await prisma.syncState.findUnique({
@@ -467,17 +485,17 @@ export async function syncGmailToDB(account: ConnectedAccount) {
 
         //First time synching
         else {
-            //Get 100 recent emails
+            //Get 1000 recent emails
             const labelMetaCache = await getLabelsPerAccount(gmail);
             let fetched = 0;
             let pageToken: string | undefined = undefined;
-            const cap = 100;
+            const cap = 1000;
 
             do {
                 // Build params WITHOUT undefined keys
                 const params: gmail_v1.Params$Resource$Users$Messages$List = {
                 userId: "me",
-                labelIds: ["INBOX"],
+                q: "(in:inbox OR in:sent) -in:trash -in:spam",
                 maxResults: Math.min(100, cap - fetched),
                 ...(pageToken ? { pageToken } : {}), // include only if defined
                 };

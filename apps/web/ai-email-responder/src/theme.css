@@ -1,0 +1,12 @@
+@import "tailwindcss";
+
+/* Custom colors */
+:root {
+    @theme {
+        --color-brand-dark: #000000;
+        --color-brand-primary: #272822; /* Bachground color (Covers a lot of space)*/
+        --color-brand-secondary: #1E1F1C; /* Darker than primary (Covers less space than primary)*/
+        --color-brand-muted: #C2E3D2; /* Light Used for small elements */
+        --color-brand-light: #F7F7F8; /* Lighter than muted (Mainly used for text and transient states) */
+    }
+}
